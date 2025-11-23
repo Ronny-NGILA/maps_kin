@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Trajet Victoire → Gare Centrale (Kinshasa)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>
+    body, html { height: 100%; margin:0; }
+    #map { height: 85vh; }
+    #info { padding: 8px; font-family: sans-serif; }
+    .route-blue { stroke: blue; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="info">
+    <strong>Info :</strong> Toutes les routes possibles sont tracées en bleu. Le chemin le plus court est en <span style="color:red">rouge</span>.
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script>
+  // create map centered on Kinshasa area
+  const map = L.map('map').setView([-4.32, 15.31], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+
+  function createMarker(point) {
+    const marker = L.marker([point.lat, point.lon]).addTo(map);
+    let photo_html = point.photo ? `<img src="${point.photo}" alt="${point.name}" style="width:200px;max-width:90%;">` : `<div style="width:200px;height:120px;background:#ddd;display:flex;align-items:center;justify-content:center">No photo</div>`;
+    marker.bindPopup(`<strong>${point.name}</strong><br>${photo_html}`);
+    return marker;
+  }
+
+  fetch('/data.json').then(r => r.json()).then(data => {
+    const start = data.start;
+    const dest = data.dest;
+    const stops = data.stops;
+    const allRoutes = data.all_routes;
+    const shortest = data.shortest_route;
+
+    // draw start & dest markers
+    createMarker(start).openPopup();
+    createMarker(dest);
+
+    // draw stops markers
+    stops.forEach(s => createMarker(s));
+
+    // draw all routes (blue) - light weight
+    allRoutes.forEach(route => {
+      const latlngs = route.points.map(p => [p.lat, p.lon]);
+      L.polyline(latlngs, {color: 'blue', weight: 3, opacity: 0.4}).addTo(map);
+    });
+
+    // draw shortest route (red, thicker)
+    const shortLatlngs = shortest.points.map(p => [p.lat, p.lon]);
+    const redLine = L.polyline(shortLatlngs, {color: 'red', weight: 6, opacity: 0.9}).addTo(map);
+
+    // add popups with segment distances along shortest route
+    const segs = shortest.segments;
+    segs.forEach(seg => {
+      // find midpoint of each segment for a small popup
+      const pFrom = shortest.points.find(p => p.name === seg.from);
+      const pTo = shortest.points.find(p => p.name === seg.to);
+      const midLat = (pFrom.lat + pTo.lat)/2;
+      const midLon = (pFrom.lon + pTo.lon)/2;
+      L.marker([midLat, midLon], {opacity:0.5, interactive:false})
+        .bindTooltip(`${seg.from} → ${seg.to}<br>${(seg.distance_m).toLocaleString()} m`, {permanent:true, direction:'center'}).addTo(map);
+    });
+
+    // zoom to fit all
+    const allLatLngs = shortest.points.map(p => [p.lat, p.lon]);
+    map.fitBounds(allLatLngs, {padding:[40,40]});
+
+    // display summary under map
+    const info = document.getElementById('info');
+    let html = `<p>Chemin le plus court : <strong>${shortest.total_distance_m.toLocaleString()} m</strong></p>`;
+    html += `<ol>`;
+    shortest.points.forEach(p => html += `<li>${p.name} (${p.lat.toFixed(5)}, ${p.lon.toFixed(5)})</li>`);
+    html += `</ol>`;
+    info.innerHTML = html + info.innerHTML;
+
+    // optional: animate a marker along the red path
+    let animMarker = L.circleMarker(shortLatlngs[0], {radius:6, color:'black', fillColor:'yellow', fillOpacity:1}).addTo(map);
+    let idx = 0;
+    function animate() {
+      idx++;
+      if (idx >= shortLatlngs.length) idx = 0;
+      animMarker.setLatLng(shortLatlngs[idx]);
+    }
+    setInterval(animate, 900); // move every 900 ms
+  });
+  </script>
+</body>
+</html>
